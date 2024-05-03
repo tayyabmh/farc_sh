@@ -5,6 +5,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
@@ -13,7 +14,10 @@ import (
 	"syscall"
 	"time"
 
+	"farc.sh/m/v2/internal/feed"
+	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
+
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/log"
 	"github.com/charmbracelet/ssh"
@@ -27,6 +31,33 @@ const (
 	host = "localhost"
 	port = "23234"
 )
+
+var docStyle = lipgloss.NewStyle().Margin(1, 2)
+
+type AuthorDetails struct {
+	Username string `json:"username"`
+}
+
+type Cast struct {
+	Author AuthorDetails `json:"author"`
+	Text   string        `json:"text"`
+}
+
+type Casts struct {
+	Casts []Cast `json:"casts"`
+}
+
+type Item struct {
+	title, desc string
+}
+
+func (i Item) Title() string       { return i.title }
+func (i Item) Description() string { return i.desc }
+func (i Item) FilterValue() string { return i.title }
+
+type listModel struct {
+	list list.Model
+}
 
 func main() {
 	s, err := wish.NewServer(
@@ -66,8 +97,6 @@ func main() {
 // pass it to the new model. You can also return tea.ProgramOptions (such as
 // tea.WithAltScreen) on a session by session basis.
 func teaHandler(s ssh.Session) (tea.Model, []tea.ProgramOption) {
-	// This should never fail, as we are using the activeterm middleware.
-	pty, _, _ := s.Pty()
 
 	// When running a Bubble Tea app over SSH, you shouldn't use the default
 	// lipgloss.NewStyle function.
@@ -78,23 +107,25 @@ func teaHandler(s ssh.Session) (tea.Model, []tea.ProgramOption) {
 	// use it to create the styles.
 	// The recommended way to use these styles is to then pass them down to
 	// your Bubble Tea model.
-	renderer := bubbletea.MakeRenderer(s)
-	txtStyle := renderer.NewStyle().Foreground(lipgloss.Color("10"))
-	quitStyle := renderer.NewStyle().Foreground(lipgloss.Color("8"))
 
-	bg := "light"
-	if renderer.HasDarkBackground() {
-		bg = "dark"
+	fmt.Println("Fetching global trending feed...")
+	castsJson := feed.GetGlobalTrendingFeed()
+
+	var casts Casts
+	json.Unmarshal([]byte(castsJson), &casts)
+
+	var items []list.Item
+	for _, cast := range casts.Casts {
+		item := Item{
+			title: cast.Author.Username,
+			desc:  cast.Text,
+		}
+		items = append(items, item)
 	}
 
-	m := model{
-		term:      pty.Term,
-		width:     pty.Window.Width,
-		height:    pty.Window.Height,
-		bg:        bg,
-		txtStyle:  txtStyle,
-		quitStyle: quitStyle,
-	}
+	m := listModel{list: list.New(items, list.NewDefaultDelegate(), 0, 0)}
+	m.list.Title = "Global Trending Feed"
+
 	return m, []tea.ProgramOption{tea.WithAltScreen()}
 }
 
@@ -108,25 +139,26 @@ type model struct {
 	quitStyle lipgloss.Style
 }
 
-func (m model) Init() tea.Cmd {
+func (m listModel) Init() tea.Cmd {
 	return nil
 }
 
-func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+func (m listModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
-	case tea.WindowSizeMsg:
-		m.height = msg.Height
-		m.width = msg.Width
 	case tea.KeyMsg:
-		switch msg.String() {
-		case "q", "ctrl+c":
+		if msg.String() == "ctrl+c" {
 			return m, tea.Quit
 		}
+	case tea.WindowSizeMsg:
+		h, v := docStyle.GetFrameSize()
+		m.list.SetSize(msg.Width-h, msg.Height-v)
 	}
-	return m, nil
+
+	var cmd tea.Cmd
+	m.list, cmd = m.list.Update(msg)
+	return m, cmd
 }
 
-func (m model) View() string {
-	s := fmt.Sprintf("Your term is %s\nYour window size is %dx%d\nBackground: %s", m.term, m.width, m.height, m.bg)
-	return m.txtStyle.Render(s) + "\n\n" + m.quitStyle.Render("Press 'q' to quit\n")
+func (m listModel) View() string {
+	return docStyle.Render(m.list.View())
 }
