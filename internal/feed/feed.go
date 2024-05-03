@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 )
 
 var NEYNAR_API_ROUTE = "https://api.neynar.com/v2/farcaster"
@@ -16,7 +17,8 @@ func GetGlobalTrendingFeed() string {
 		fmt.Println("err: ", err)
 	}
 
-	req.Header.Add("api_key", "E045ED64-EF08-45B3-A409-8E42C6B5FC92")
+	neynarApiKey := os.Getenv("NEYNAR_API_KEY")
+	req.Header.Add("api_key", neynarApiKey)
 
 	resp, err := client.Do(req)
 

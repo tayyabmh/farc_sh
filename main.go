@@ -7,12 +7,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"net"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
+
+	"github.com/joho/godotenv"
 
 	"farc.sh/m/v2/internal/feed"
 	"github.com/charmbracelet/bubbles/list"
@@ -60,6 +61,11 @@ type listModel struct {
 }
 
 func main() {
+	err := godotenv.Load()
+	if err != nil {
+		log.Error("Error loading .env file")
+	}
+
 	s, err := wish.NewServer(
 		wish.WithAddress(net.JoinHostPort(host, port)),
 		wish.WithHostKeyPath(".ssh/id_ed25519"),
@@ -108,7 +114,6 @@ func teaHandler(s ssh.Session) (tea.Model, []tea.ProgramOption) {
 	// The recommended way to use these styles is to then pass them down to
 	// your Bubble Tea model.
 
-	fmt.Println("Fetching global trending feed...")
 	castsJson := feed.GetGlobalTrendingFeed()
 
 	var casts Casts
